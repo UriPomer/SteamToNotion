@@ -25,45 +25,51 @@ def load_mapping():
         return json.load(f)
 
 
-def normalize_value(key, value):
+def normalize_value(value, field_type):
     if value is None:
         return ""
-    if key in ["Last Played", "上一次游玩时间"]:
+    if field_type == "date":
         try:
-            # 处理可能的 'Z' 或时区信息（这里简单替换为 +00:00）
-            # 注意：如果有其他时区信息，可能需要更复杂的处理
-            value_fixed = value.replace("Z", "+00:00")
-            dt = datetime.datetime.fromisoformat(value_fixed)
-            # 格式化为 "YYYY-MM-DDTHH:MM"（忽略秒、毫秒）
+            # 如果有 "Z"，替换为 "+00:00"，然后解析
+            dt = datetime.datetime.fromisoformat(value.replace("Z", "+00:00"))
             return dt.strftime("%Y-%m-%dT%H:%M")
         except Exception as e:
-            print(f"日期归一化失败：{value}，错误：{e}")
+            print(f"日期归一化失败: {value}，错误：{e}")
+            return str(value).strip()
+    if field_type == "number":
+        try:
+            num = float(value)
+            # 如果是整数，则返回整数字符串，否则保留一位小数
+            if num.is_integer():
+                return str(int(num))
+            else:
+                return f"{num:.1f}"
+        except Exception:
             return str(value).strip()
     if isinstance(value, str):
         return value.strip()
-    return value
+    return str(value)
 
 
 def build_properties(game, mapping):
     props = {}
-    safe_game = game.copy()
 
     for local_field, map_info in mapping.items():
         notion_field = map_info.get("notion_field")
         field_type = map_info.get("type")
         if "format" in map_info:
             fmt = map_info["format"]
-            # 使用安全副本进行格式化
-            value = fmt.format(**safe_game)
+            value = fmt.format(**game)
         else:
-            value = safe_game.get(local_field, "")
+            value = game.get(local_field, "")
         # 根据类型构造 Notion 属性格式
         if field_type == "title":
             props[notion_field] = {"title": [{"text": {"content": str(value)}}]}
         elif field_type == "number":
             props[notion_field] = {"number": value}
         elif field_type == "date":
-            props[notion_field] = {"date": {"start": value}}
+            if value:
+                props[notion_field] = {"date": {"start": value}}
         elif field_type == "url":
             props[notion_field] = {"url": str(value)}
         elif field_type == "rich_text":
@@ -219,10 +225,10 @@ def sync_games_to_notion():
                 print(f"'{game_name}' 数据无变化，跳过更新。")
             else:
                 print(f"'{game_name}' 检测到变化，更新页面。")
-                update_page(existing_page["id"], game, mapping)
+                update_page(existing_page["id"], safe_game, mapping)
         else:
             print(f"'{game_name}' 页面不存在，创建新页面。")
-            create_page(game, mapping)
+            create_page(safe_game, mapping)
         time.sleep(0.3)
 
 
