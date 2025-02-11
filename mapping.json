@@ -1,0 +1,23 @@
+{
+  "Game Name": {
+    "notion_field": "名称",
+    "type": "title"
+  },
+  "Playtime Hours": {
+    "notion_field": "游玩时长",
+    "type": "number"
+  },
+  "Last Played": {
+    "notion_field": "上一次游玩时间",
+    "type": "date"
+  },
+  "Banner": {
+    "notion_field": "Banner",
+    "type": "url"
+  },
+  "Achievements": {
+    "notion_field": "成就数",
+    "type": "rich_text",
+    "format": "{Achievements Unlocked}/{Achievements Total}"
+  }
+}
