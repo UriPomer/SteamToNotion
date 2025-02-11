@@ -3,6 +3,7 @@ import json
 import time
 import requests
 from dotenv import load_dotenv
+import datetime
 
 load_dotenv()
 
@@ -24,16 +25,38 @@ def load_mapping():
         return json.load(f)
 
 
+def normalize_value(key, value):
+    if value is None:
+        return ""
+    if key in ["Last Played", "上一次游玩时间"]:
+        try:
+            # 处理可能的 'Z' 或时区信息（这里简单替换为 +00:00）
+            # 注意：如果有其他时区信息，可能需要更复杂的处理
+            value_fixed = value.replace("Z", "+00:00")
+            dt = datetime.datetime.fromisoformat(value_fixed)
+            # 格式化为 "YYYY-MM-DDTHH:MM"（忽略秒、毫秒）
+            return dt.strftime("%Y-%m-%dT%H:%M")
+        except Exception as e:
+            print(f"日期归一化失败：{value}，错误：{e}")
+            return str(value).strip()
+    if isinstance(value, str):
+        return value.strip()
+    return value
+
+
 def build_properties(game, mapping):
     props = {}
+    safe_game = game.copy()
+
     for local_field, map_info in mapping.items():
         notion_field = map_info.get("notion_field")
         field_type = map_info.get("type")
         if "format" in map_info:
             fmt = map_info["format"]
-            value = fmt.format(**game)
+            # 使用安全副本进行格式化
+            value = fmt.format(**safe_game)
         else:
-            value = game.get(local_field, "")
+            value = safe_game.get(local_field, "")
         # 根据类型构造 Notion 属性格式
         if field_type == "title":
             props[notion_field] = {"title": [{"text": {"content": str(value)}}]}
@@ -92,8 +115,12 @@ def extract_page_properties(page, mapping):
             elif field_type == "number":
                 value = prop.get("number")
             elif field_type == "date":
-                date_obj = prop.get("date", {})
-                value = date_obj.get("start")
+                # 对日期属性进行额外的检查，确保日期存在
+                date_obj = prop.get("date")
+                if date_obj and "start" in date_obj:
+                    value = date_obj["start"]
+                else:
+                    value = ""
             elif field_type == "url":
                 value = prop.get("url", "").strip()
             elif field_type == "rich_text":
@@ -102,7 +129,7 @@ def extract_page_properties(page, mapping):
             else:
                 value = ""
             props[local_field] = str(value).strip()
-    # 同时提取页面封面（cover），我们假设封面应与 Banner 相同
+
     cover_url = ""
     if page.get("cover"):
         if page["cover"].get("external"):
@@ -115,8 +142,10 @@ def extract_page_properties(page, mapping):
 
 def properties_equal(existing, new):
     for key in new:
-        if str(existing.get(key, "")).strip() != str(new.get(key, "")).strip():
-            print(f"差异检测：字段 '{key}' 不同，现有：'{existing.get(key, '')}' vs 新值：'{new.get(key, '')}'")
+        exist = normalize_value(key, existing.get(key))
+        new_val = normalize_value(key, new.get(key))
+        if exist != new_val:
+            print(f"差异检测：字段 '{key}' 不同，现有：'{exist}' vs 新值：'{new_val}'")
             return False
     return True
 
@@ -166,17 +195,22 @@ def sync_games_to_notion():
         if not game_name:
             continue
 
+        # 创建一个安全副本，确保缺失的成就字段有默认值
+        safe_game = game.copy()
+        safe_game.setdefault("Achievements Unlocked", "0")
+        safe_game.setdefault("Achievements Total", "游戏不存在成就")
+
         # 构造本地数据用于比较
         new_props = {}
         for local_field, map_info in mapping.items():
             if "format" in map_info:
                 fmt = map_info["format"]
-                value = fmt.format(**game)
+                value = fmt.format(**safe_game)
             else:
-                value = game.get(local_field, "")
+                value = safe_game.get(local_field, "")
             new_props[local_field] = str(value).strip()
         # 封面字段与 Banner 相同
-        new_props["cover"] = game.get("Banner", "").strip()
+        new_props["cover"] = safe_game.get("Banner", "").strip()
 
         existing_page = find_existing_page(game_name, mapping)
         if existing_page:
@@ -190,6 +224,7 @@ def sync_games_to_notion():
             print(f"'{game_name}' 页面不存在，创建新页面。")
             create_page(game, mapping)
         time.sleep(0.3)
+
 
 
 if __name__ == "__main__":
