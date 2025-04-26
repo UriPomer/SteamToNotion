@@ -146,10 +146,11 @@ def extract_page_properties(page, mapping):
     return props
 
 
-def properties_equal(existing, new):
+def properties_equal(existing, new, mapping):
     for key in new:
-        exist = normalize_value(key, existing.get(key))
-        new_val = normalize_value(key, new.get(key))
+        field_type = mapping.get(key, {}).get('type', 'text')
+        exist = normalize_value(existing.get(key), field_type)
+        new_val = normalize_value(new.get(key), field_type)
         if exist != new_val:
             print(f"差异检测：字段 '{key}' 不同，现有：'{exist}' vs 新值：'{new_val}'")
             return False
@@ -221,7 +222,7 @@ def sync_games_to_notion():
         existing_page = find_existing_page(game_name, mapping)
         if existing_page:
             existing_props = extract_page_properties(existing_page, mapping)
-            if properties_equal(existing_props, new_props):
+            if properties_equal(existing_props, new_props, mapping):
                 print(f"'{game_name}' 数据无变化，跳过更新。")
             else:
                 print(f"'{game_name}' 检测到变化，更新页面。")
