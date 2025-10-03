@@ -59,16 +59,19 @@ def get_data_source_id():
 
 
 def normalize_value(value, field_type):
-    if value is None:
+    if value is None or value == "" or str(value).strip() == "" or str(value).lower() == "none":
         return ""
     if field_type == "date":
         try:
+            value_str = str(value).strip()
+            # 再次检查空值
+            if not value_str or value_str.lower() == "none":
+                return ""
             # 如果有 "Z"，替换为 "+00:00"，然后解析
-            dt = datetime.datetime.fromisoformat(value.replace("Z", "+00:00"))
+            dt = datetime.datetime.fromisoformat(value_str.replace("Z", "+00:00"))
             return dt.strftime("%Y-%m-%dT%H:%M")
-        except Exception as e:
-            print(f"日期归一化失败: {value}，错误：{e}")
-            return str(value).strip()
+        except Exception:
+            return ""
     if field_type == "number":
         try:
             num = float(value)
@@ -132,13 +135,28 @@ def find_existing_page(game_name, mapping, data_source_id):
             }
         }
     }
-    response = requests.post(query_url, headers=HEADERS, json=query_payload)
-    if response.status_code != 200:
-        print("查询数据源失败：", response.text)
-        return None
-    data = response.json()
-    results = data.get("results", [])
-    return results[0] if results else None
+    
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            response = requests.post(query_url, headers=HEADERS, json=query_payload, timeout=30)
+            if response.status_code != 200:
+                print("查询数据源失败：", response.text)
+                return None
+            data = response.json()
+            results = data.get("results", [])
+            return results[0] if results else None
+        except requests.exceptions.SSLError as e:
+            if attempt < max_retries - 1:
+                wait_time = (attempt + 1) * 2  # 2, 4, 6 秒
+                print(f"⚠️  SSL 连接错误，{wait_time}秒后重试 ({attempt + 1}/{max_retries})...")
+                time.sleep(wait_time)
+            else:
+                print(f"❌ SSL 错误，已重试 {max_retries} 次：{e}")
+                return None
+        except Exception as e:
+            print(f"❌ 查询出错：{e}")
+            return None
 
 
 def extract_page_properties(page, mapping):
@@ -200,12 +218,29 @@ def create_page(game, mapping, data_source_id):
         "properties": properties,
         "cover": {"external": {"url": banner_value}}
     }
-    response = requests.post(url, headers=HEADERS, json=data)
-    if response.status_code in (200, 201):
-        print(f"创建页面 '{game.get('Game Name')}' 成功")
-    else:
-        print(f"创建页面 '{game.get('Game Name')}' 失败，状态码: {response.status_code}")
-        print(response.text)
+    
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            response = requests.post(url, headers=HEADERS, json=data, timeout=30)
+            if response.status_code in (200, 201):
+                print(f"创建页面 '{game.get('Game Name')}' 成功")
+                return True
+            else:
+                print(f"创建页面 '{game.get('Game Name')}' 失败，状态码: {response.status_code}")
+                print(response.text)
+                return False
+        except requests.exceptions.SSLError as e:
+            if attempt < max_retries - 1:
+                wait_time = (attempt + 1) * 2
+                print(f"⚠️  SSL 连接错误，{wait_time}秒后重试 ({attempt + 1}/{max_retries})...")
+                time.sleep(wait_time)
+            else:
+                print(f"❌ 创建页面失败，SSL 错误：{e}")
+                return False
+        except Exception as e:
+            print(f"❌ 创建页面出错：{e}")
+            return False
 
 
 def update_page(page_id, game, mapping):
@@ -216,12 +251,29 @@ def update_page(page_id, game, mapping):
         "properties": properties,
         "cover": {"external": {"url": banner_value}}
     }
-    response = requests.patch(update_url, headers=HEADERS, json=data)
-    if response.status_code in (200, 201):
-        print(f"更新页面 '{game.get('Game Name')}' 成功")
-    else:
-        print(f"更新页面 '{game.get('Game Name')}' 失败，状态码: {response.status_code}")
-        print(response.text)
+    
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            response = requests.patch(update_url, headers=HEADERS, json=data, timeout=30)
+            if response.status_code in (200, 201):
+                print(f"更新页面 '{game.get('Game Name')}' 成功")
+                return True
+            else:
+                print(f"更新页面 '{game.get('Game Name')}' 失败，状态码: {response.status_code}")
+                print(response.text)
+                return False
+        except requests.exceptions.SSLError as e:
+            if attempt < max_retries - 1:
+                wait_time = (attempt + 1) * 2
+                print(f"⚠️  SSL 连接错误，{wait_time}秒后重试 ({attempt + 1}/{max_retries})...")
+                time.sleep(wait_time)
+            else:
+                print(f"❌ 更新页面失败，SSL 错误：{e}")
+                return False
+        except Exception as e:
+            print(f"❌ 更新页面出错：{e}")
+            return False
 
 
 def sync_games_to_notion():
