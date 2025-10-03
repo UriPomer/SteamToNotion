@@ -19,10 +19,43 @@ HEADERS = {
     "Notion-Version": NOTION_VERSION
 }
 
+# 缓存 data_source_id，避免重复请求
+_DATA_SOURCE_ID_CACHE = None
+
 
 def load_mapping():
     with open(MAPPING_FILE, "r", encoding="utf-8") as f:
         return json.load(f)
+
+
+def get_data_source_id():
+    """获取数据库的 data_source_id（新 API 要求）"""
+    global _DATA_SOURCE_ID_CACHE
+    
+    if _DATA_SOURCE_ID_CACHE:
+        return _DATA_SOURCE_ID_CACHE
+    
+    # 调用新的 GET /v1/databases/{database_id} API
+    url = f"https://api.notion.com/v1/databases/{NOTION_DATABASE_ID}"
+    response = requests.get(url, headers=HEADERS, timeout=10)
+    
+    if response.status_code != 200:
+        print(f"获取 data_source_id 失败：{response.text}")
+        return None
+    
+    data = response.json()
+    data_sources = data.get("data_sources", [])
+    
+    if not data_sources:
+        print("错误：数据库没有 data_source！")
+        return None
+    
+    # 使用第一个 data_source（单数据源场景）
+    data_source_id = data_sources[0].get("id")
+    _DATA_SOURCE_ID_CACHE = data_source_id
+    
+    print(f"✓ 获取到 data_source_id: {data_source_id}")
+    return data_source_id
 
 
 def normalize_value(value, field_type):
@@ -79,7 +112,7 @@ def build_properties(game, mapping):
     return props
 
 
-def find_existing_page(game_name, mapping):
+def find_existing_page(game_name, mapping, data_source_id):
     # 从 mapping 中找到对应名称字段
     game_name_field = None
     for local_field, map_info in mapping.items():
@@ -90,7 +123,7 @@ def find_existing_page(game_name, mapping):
         print("未在映射中找到游戏名称字段！")
         return None
 
-    query_url = f"https://api.notion.com/v1/databases/{NOTION_DATABASE_ID}/query"
+    query_url = f"https://api.notion.com/v1/data_sources/{data_source_id}/query"
     query_payload = {
         "filter": {
             "property": game_name_field,
@@ -101,7 +134,7 @@ def find_existing_page(game_name, mapping):
     }
     response = requests.post(query_url, headers=HEADERS, json=query_payload)
     if response.status_code != 200:
-        print("查询数据库失败：", response.text)
+        print("查询数据源失败：", response.text)
         return None
     data = response.json()
     results = data.get("results", [])
@@ -157,13 +190,13 @@ def properties_equal(existing, new, mapping):
     return True
 
 
-def create_page(game, mapping):
+def create_page(game, mapping, data_source_id):
     url = "https://api.notion.com/v1/pages"
     properties = build_properties(game, mapping)
     # 设置页面封面为 Banner 链接
     banner_value = game.get("Banner", "").strip()
     data = {
-        "parent": {"database_id": NOTION_DATABASE_ID},
+        "parent": {"data_source_id": data_source_id},
         "properties": properties,
         "cover": {"external": {"url": banner_value}}
     }
@@ -193,6 +226,12 @@ def update_page(page_id, game, mapping):
 
 def sync_games_to_notion():
     mapping = load_mapping()
+    
+    data_source_id = get_data_source_id()
+    if not data_source_id:
+        print("❌ 无法获取 data_source_id，同步终止！")
+        return
+    
     with open(INPUT_JSON_FILE, "r", encoding="utf-8") as f:
         games = json.load(f)
 
@@ -219,7 +258,7 @@ def sync_games_to_notion():
         # 封面字段与 Banner 相同
         new_props["cover"] = safe_game.get("Banner", "").strip()
 
-        existing_page = find_existing_page(game_name, mapping)
+        existing_page = find_existing_page(game_name, mapping, data_source_id)
         if existing_page:
             existing_props = extract_page_properties(existing_page, mapping)
             if properties_equal(existing_props, new_props, mapping):
@@ -229,7 +268,7 @@ def sync_games_to_notion():
                 update_page(existing_page["id"], safe_game, mapping)
         else:
             print(f"'{game_name}' 页面不存在，创建新页面。")
-            create_page(safe_game, mapping)
+            create_page(safe_game, mapping, data_source_id)
         time.sleep(0.3)
 
 
