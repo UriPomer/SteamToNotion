@@ -12,7 +12,7 @@ NOTION_DATABASE_ID = os.getenv("NOTION_DATABASE_ID")
 INPUT_JSON_FILE = os.getenv("JSON_FILE", "steam_games.json")
 MAPPING_FILE = os.getenv("MAPPING_FILE", "mapping.json")
 
-NOTION_VERSION = "2022-06-28"
+NOTION_VERSION = "2025-09-03"
 HEADERS = {
     "Authorization": f"Bearer {NOTION_TOKEN}",
     "Content-Type": "application/json",

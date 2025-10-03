@@ -2,3 +2,4 @@
 *.json
 !mapping.json
 .idea
+*.pyc
